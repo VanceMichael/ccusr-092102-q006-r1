@@ -1,0 +1,8 @@
+{
+  "sign_id": "sign-demo-001",
+  "language": "English",
+  "location_precision": "street",
+  "location_authorized": true,
+  "photo_fingerprint": "sha256:example",
+  "reported_at": "2026-09-19T10:30:00+08:00"
+}
