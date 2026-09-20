@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1668dc">
+<title>福州外语标识“随手拍”纠错</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>福州外语标识“随手拍”纠错</h1>
+  <p>拍照提交即可，无需判断找哪所高校的志愿者 · 福州市外事办公室</p>
+</header>
+
+<main>
+  <div class="card" id="trackCard">
+    <h2>🔎 查询我的线索进展</h2>
+    <label class="field">
+      查询号（提交时系统发给您，仅本人可凭号查看）
+      <input type="text" id="trackToken" inputmode="url" placeholder="例如 rtk-xxxxxxxx" autocomplete="off">
+    </label>
+    <button class="btn block" id="trackBtn">查询办理进展</button>
+    <div id="trackResult" style="margin-top:12px"></div>
+  </div>
+
+  <form id="reportForm">
+    <div class="card">
+      <h2><span class="step">1</span>拍照（已遮蔽人脸 / 车牌后才会上传）</h2>
+      <p class="notice privacy">图片先在您手机本地完成打码，服务器只收到遮蔽后的照片，不会收到原片。</p>
+      <label class="photo-slot" for="photoInput">
+        📷 点此拍照或从相册选择
+        <input id="photoInput" type="file" accept="image/*" capture="environment" multiple>
+      </label>
+      <div class="thumb-list" id="thumbList"></div>
+      <p class="notice warn" id="photoWarn" style="display:none;margin-top:10px">至少需要一张照片；请确认路人面部与周边车牌已打码。</p>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">2</span>位置精度（按您的授权保存）</h2>
+      <p class="notice privacy">系统不会保存超出您所选精度的坐标。选择“不保留”时，后台无法比对重复线索的位置，但不影响提交。</p>
+      <div class="precision-options" id="precisionBox">
+        <label data-value="exact">
+          <input type="radio" name="precision" value="exact">
+          <span><b>精确定位（推荐）</b><small>保存手机 GPS 精确点，便于现场核查与重复识别</small></span>
+        </label>
+        <label data-value="approx">
+          <input type="radio" name="precision" value="approx">
+          <span><b>模糊到约 500 米</b><small>仅保存大致区域，仍可辅助去重</small></span>
+        </label>
+        <label data-value="street">
+          <input type="radio" name="precision" value="street">
+          <span><b>只留街区</b><small>仅保留约 1 公里网格</small></span>
+        </label>
+        <label data-value="none">
+          <input type="radio" name="precision" value="none" checked>
+          <span><b>不保留位置</b><small>不上传任何坐标</small></span>
+        </label>
+      </div>
+      <input type="hidden" id="lat"><input type="hidden" id="lng">
+      <p class="kv" id="geoState" style="margin-top:8px">尚未获取定位。</p>
+    </div>
+
+    <div class="card">
+      <h2><span class="step">3</span>标识信息与纠错意见</h2>
+      <label class="field">标识上的原文 <span class="req">*</span>
+        <input type="text" id="title" placeholder="例如 Beware of the pool" maxlength="200">
+      </label>
+      <label class="field">涉及语种 <span class="req">*</span>
+        <select id="language">
+          <option value="English">英语 English</option>
+          <option value="Japanese">日语 Japanese</option>
+          <option value="Korean">韩语 Korean</option>
+          <option value="French">法语 French</option>
+          <option value="Russian">俄语 Russian</option>
+          <option value="German">德语 German</option>
+          <option value="Spanish">西班牙语 Spanish</option>
+          <option value="Other">其他语种</option>
+        </select>
+      </label>
+      <div class="field" style="display:flex;gap:10px">
+        <label class="field" style="flex:1;margin:0">所在区
+          <input type="text" id="district" placeholder="如 鼓楼区">
+        </label>
+        <label class="field" style="flex:1;margin:0">道路 / 地点
+          <input type="text" id="road" placeholder="如 湖东路">
+        </label>
+      </div>
+      <label class="field">依据的规范条款（选填）
+        <input type="text" id="clause" placeholder="如 GB/T 30240.1-2013 安全警示类">
+      </label>
+      <label class="field">您的纠错意见 <span class="req">*</span>
+        <textarea id="suggestion" placeholder="例如 应为 Wet Floor / Slippery Surface" maxlength="1000"></textarea>
+      </label>
+      <label class="field">联系方式（选填，仅外事办可见，不对志愿者、专家和单位公开）
+        <input type="tel" id="contact" placeholder="手机号或邮箱（可不填）" maxlength="100" autocomplete="off">
+      </label>
+    </div>
+
+    <button class="btn block" type="submit" id="submitBtn" style="padding:14px;font-size:16px">提交纠错线索</button>
+    <p style="text-align:center;margin:12px 0 0"><a class="back-link" href="/console.html">工作人员 / 专家 / 单位入口 →</a></p>
+  </form>
+
+  <div class="card" id="successCard" style="display:none">
+    <h2>✅ 提交成功</h2>
+    <div id="successBody" class="result-box"></div>
+    <button class="btn secondary block" id="againBtn" style="margin-top:12px">再报一条</button>
+  </div>
+</main>
+
+<div id="toast" class="toast" style="display:none"></div>
+
+<script type="module">
+import { openRedactionEditor } from "/static/redactor.js";
+
+const $ = (id) => document.getElementById(id);
+const photos = [];
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._timer); t._timer = setTimeout(() => (t.style.display = "none"), 2600);
+}
+
+async function api(path, body, token) {
+  const headers = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body ?? {}) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `请求失败（${res.status}）`);
+  return data;
+}
+
+// ---------- 照片选择 → 遮蔽 ----------
+$("photoInput").addEventListener("change", async (e) => {
+  for (const file of [...e.target.files]) {
+    try {
+      const edited = await openRedactionEditor(file);
+      if (!edited) continue;
+      photos.push(edited);
+      renderThumbs();
+    } catch (err) { toast(err.message); }
+  }
+  e.target.value = "";
+});
+
+function renderThumbs() {
+  const box = $("thumbList");
+  box.innerHTML = "";
+  photos.forEach((ph, i) => {
+    const div = document.createElement("div");
+    div.className = "thumb";
+    div.innerHTML = `<img alt="已遮蔽照片 ${i + 1}"><button type="button" aria-label="删除">×</button><span class="tag">已打码</span>`;
+    div.querySelector("img").src = ph.data_url;
+    div.querySelector("button").onclick = () => { photos.splice(i, 1); renderThumbs(); };
+    box.appendChild(div);
+  });
+}
+
+// ---------- 位置精度 ----------
+const precisionBox = $("precisionBox");
+const radios = () => precisionBox.querySelectorAll("input[type=radio]");
+function syncPrecisionStyle() {
+  precisionBox.querySelectorAll("label").forEach((lab) => {
+    lab.classList.toggle("on", lab.querySelector("input").checked);
+  });
+}
+radios().forEach((r) => r.addEventListener("change", onPrecisionChange));
+syncPrecisionStyle();
+
+async function onPrecisionChange() {
+  syncPrecisionStyle();
+  const val = precisionBox.querySelector("input:checked").value;
+  const state = $("geoState");
+  $("lat").value = ""; $("lng").value = "";
+  if (val === "none") { state.textContent = "您选择不保留位置，不会请求定位。"; return; }
+  state.textContent = "正在获取定位…";
+  if (!navigator.geolocation) { state.textContent = "当前浏览器不支持定位，您仍可提交（位置将缺省）。"; return; }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      $("lat").value = pos.coords.latitude.toFixed(6);
+      $("lng").value = pos.coords.longitude.toFixed(6);
+      state.innerHTML = `已获取定位 <b>${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}</b>，将按所选精度模糊保存。`;
+    },
+    () => { state.textContent = "定位被拒绝或不可用；您仍可提交，或改用更粗的精度。"; },
+    { enableHighAccuracy: true, timeout: 9000 },
+  );
+}
+
+// ---------- 提交 ----------
+$("reportForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const warn = $("photoWarn");
+  if (photos.length === 0) { warn.style.display = "block"; toast("请先拍照并完成遮蔽"); return; }
+  warn.style.display = "none";
+  const precision = precisionBox.querySelector("input:checked").value;
+  const payload = {
+    title: $("title").value.trim(),
+    language: $("language").value,
+    district: $("district").value.trim() || null,
+    road: $("road").value.trim() || null,
+    clause: $("clause").value.trim(),
+    suggestion: $("suggestion").value.trim(),
+    contact: $("contact").value.trim() || null,
+    location_precision: precision,
+    location_authorized: precision !== "none",
+    lat: Number($("lat").value) || null,
+    lng: Number($("lng").value) || null,
+    photos: photos.map((p) => ({ data_url: p.data_url, boxes: p.boxes, width: p.width, height: p.height })),
+    dhashes: photos.map((p) => p.dhash),
+  };
+  if (!payload.title || !payload.suggestion) { toast("请填写标识原文与纠错意见"); return; }
+
+  $("submitBtn").disabled = true; $("submitBtn").textContent = "提交中…";
+  try {
+    const res = await api("/api/reports", payload);
+    localStorage.setItem("last_track_token", res.track_token);
+    $("successCard").style.display = "block";
+    const cand = (res.merge_candidates || []).map(
+      (c) => `<li>疑似与已有线索「${escapeHtml(c.title)}」相关：${c.reasons.map(escapeHtml).join("、")}</li>`,
+    ).join("");
+    $("successBody").innerHTML = `
+      <p class="notice ok">${escapeHtml(res.hint)}</p>
+      <p>您的线索编号：<b>${res.report_id}</b></p>
+      <p>请保存您的专属查询号（仅显示这一次，凭它随时查询进展，无需注册）：</p>
+      <code>${escapeHtml(res.track_token)}</code>
+      ${cand ? `<p class="notice warn" style="margin-top:8px">系统提出了合并候选，但<b>不会自动删除或合并</b>任何线索，需外事部门人工甄别：<ul style="margin:6px 0 0 18px">${cand}</ul></p>` : ""}
+      <p style="margin-top:10px"><button class="btn secondary" id="jumpTrack">立即查看进展</button></p>`;
+    $("jumpTrack").onclick = () => {
+      $("trackToken").value = res.track_token;
+      $("trackBtn").click();
+      $("trackCard").scrollIntoView({ behavior: "smooth" });
+    };
+    $("successCard").scrollIntoView({ behavior: "smooth" });
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    $("submitBtn").disabled = false; $("submitBtn").textContent = "提交纠错线索";
+  }
+});
+
+$("againBtn").onclick = () => {
+  $("reportForm").reset(); photos.length = 0; renderThumbs(); syncPrecisionStyle();
+  $("successCard").style.display = "none";
+  window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+// ---------- 进展查询 ----------
+$("trackBtn").addEventListener("click", async () => {
+  const token = $("trackToken").value.trim() || localStorage.getItem("last_track_token");
+  if (!token) return toast("请输入查询号");
+  const box = $("trackResult");
+  box.innerHTML = `<p class="kv">查询中…</p>`;
+  try {
+    const s = await api("/api/track", { token });
+    const t = s.status_text;
+    const badge = ["已整改规范"].includes(t) ? "ok" : /重新办理/.test(t) ? "bad" : "warn";
+    const timeline = (s.timeline || []).map((ev) =>
+      `<li><time>${new Date(ev.at).toLocaleString("zh-CN")}</time>${escapeHtml(ev.label)}</li>`).join("");
+    box.innerHTML = `
+      <div class="sign-item">
+        <div class="row"><h4>${escapeHtml(s.title)}</h4><span class="badge ${badge}">${escapeHtml(t)}</span></div>
+        <p class="meta">${escapeHtml(s.district || "")} ${escapeHtml(s.road || "")} · 线索编号 ${escapeHtml(s.my_report.id)}</p>
+        <div class="section-title">办理进展</div>
+        <ul class="timeline">${timeline || "<li>已进入甄别队列</li>"}</ul>
+        ${s.canonical_translation ? `<p class="notice ok" style="margin-top:8px">✅ 最终规范译法（${escapeHtml(s.canonical_translation.language)}）：<b>${escapeHtml(s.canonical_translation.text)}</b></p>` : ""}
+        <p class="notice privacy" style="margin-top:8px">您只能看到自己线索的办理节点；其他举报人信息、专家与设置单位的内部意见不向您公开。</p>
+      </div>`;
+  } catch (err) {
+    box.innerHTML = `<p class="notice bad">${escapeHtml(err.message)}</p>`;
+  }
+});
+
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+</script>
+</body>
+</html>

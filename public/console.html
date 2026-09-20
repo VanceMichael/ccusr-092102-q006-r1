@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1668dc">
+<title>外语标识纠错 · 协同工作台</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>协同工作台</h1>
+  <p>志愿者译法 · 专家审定（语种匹配 + 利益回避）· 设置单位整改 · 外事部门监管</p>
+</header>
+
+<main>
+  <div class="card">
+    <h2>角色切换（演示账号）</h2>
+    <div class="rolebar" id="rolebar">
+      <button data-token="demo-volunteer">志愿者 林一舟</button>
+      <button data-token="demo-expert-chen">专家 陈静远（英语/有回避单位）</button>
+      <button data-token="demo-expert-wang">专家 王雅文（英语·日语）</button>
+      <button data-token="demo-manager">设置单位 鼓楼园林</button>
+      <button data-token="demo-manager-gov">设置单位 市政工程处</button>
+      <button data-token="demo-manager-block">设置单位 三坊七巷管委会</button>
+      <button data-token="demo-admin">外事办 主管部门</button>
+    </div>
+    <p class="kv" id="who" style="margin-top:10px">未选择角色。</p>
+    <p><a class="back-link" href="/">← 返回市民“随手拍”页面</a></p>
+  </div>
+
+  <div id="work"></div>
+</main>
+
+<div id="toast" class="toast" style="display:none"></div>
+<div id="modalHost"></div>
+
+<script type="module">
+import { openRedactionEditor } from "/static/redactor.js";
+
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+let TOKEN = null;
+let ME = null;
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(t._timer); t._timer = setTimeout(() => (t.style.display = "none"), 2800);
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+async function api(path, opts = {}) {
+  const headers = { ...(opts.body ? { "content-type": "application/json" } : {}) };
+  if (TOKEN) headers.authorization = `Bearer ${TOKEN}`;
+  const res = await fetch(path, { ...opts, headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || `请求失败（${res.status}）`), { details: data.details });
+  return data;
+}
+
+const TOKEN_NAMES = {
+  "demo-volunteer": "志愿者（福州大学外语志愿队）",
+  "demo-expert-chen": "专家 陈静远（英语；回避：福州市市政工程管理处）",
+  "demo-expert-wang": "专家 王雅文（英语、日语）",
+  "demo-manager": "设置单位：鼓楼区园林中心",
+  "demo-manager-gov": "设置单位：福州市市政工程管理处",
+  "demo-manager-block": "设置单位：三坊七巷历史街区管委会",
+  "demo-admin": "主管部门：福州市外事办公室",
+};
+
+$("#rolebar").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-token]");
+  if (!btn) return;
+  TOKEN = btn.dataset.token;
+  $$("#rolebar button").forEach((b) => b.classList.toggle("on", b === btn));
+  $("#who").textContent = `当前身份：${TOKEN_NAMES[TOKEN]}`;
+  await render();
+});
+
+async function render() {
+  const host = $("#work");
+  try {
+    if (TOKEN === "demo-admin") return renderAdmin();
+    if (TOKEN.startsWith("demo-expert")) return renderExpert();
+    if (TOKEN === "demo-volunteer") return renderVolunteer();
+    if (TOKEN.startsWith("demo-manager")) return renderManager();
+  } catch (err) {
+    host.innerHTML = `<div class="card"><p class="notice bad">${esc(err.message)}</p></div>`;
+  }
+}
+
+function signCard(s, inner) {
+  return `<div class="sign-item" data-id="${esc(s.id)}">
+    <div class="row"><h4>${esc(s.title)}</h4><span class="badge">${esc(s.status_text)}</span></div>
+    <p class="meta">${esc(s.district || "区域未填")} · ${esc(s.road || "")} ${s.owner_org ? "· 设置单位：" + esc(s.owner_org) : "· <b>尚未分派</b>"} · 现场版本 ${s.version_count} 版</p>
+    ${inner || ""}
+  </div>`;
+}
+
+function reportsHtml(s) {
+  if (!s.reports) return "";
+  return s.reports.map((r) => `
+    <details class="kv" style="margin-top:6px">
+      <summary>线索 ${esc(r.id.slice(-6))}（${esc(r.language)}｜位置精度：${esc(r.location_precision)}）</summary>
+      <p>规范条款：${esc(r.clause || "未填")}<br>纠错意见：${esc(r.suggestion || "未填")}</p>
+      <p>${"reporter_contact" in r ? `联系方式：<b>${esc(r.reporter_contact)}</b>` : `是否留联系方式：${r.contact_provided ? "是（已隐藏）" : "否"}`}</p>
+      ${r.point ? `<p>可见坐标：${esc(r.point.lat)}, ${esc(r.point.lng)}</p>` : "<p>可见坐标：举报人未授权保留</p>"}
+    </details>`).join("");
+}
+
+// ---------------- 志愿者 ----------------
+async function renderVolunteer() {
+  const { signs } = await api("/api/volunteer/queue");
+  $("#work").innerHTML = `<div class="card"><h2>📝 可参与译法的标识</h2>
+    <p class="notice privacy">志愿者看到纠错意见、条款与现场照片用于翻译；举报人的联系方式不可见。提交后进入专家审定，志愿者不能自审。</p>
+    <div id="list">${signs.map((s) => signCard(s, `
+      ${reportsHtml(s)}
+      <div class="actions">
+        <button class="btn secondary" data-act="propose">提交译法</button>
+      </div>`)).join("") || "<p class='kv'>暂无可领取的标识。</p>"}</div></div>`;
+  bindActions();
+}
+
+// ---------------- 专家 ----------------
+async function renderExpert() {
+  const { signs } = await api("/api/expert/queue");
+  $("#work").innerHTML = `<div class="card"><h2>🎓 待审定译法</h2>
+    <p class="notice privacy">系统按“语种匹配 + 与设置单位无利益冲突”判定资格；不符合条件时审定按钮锁定。</p>
+    <div id="list">${signs.map((s) => {
+      const props = (s.proposals || []).map((p) => {
+        const e = p.eligibility || { eligible: true, reasons: [] };
+        return `<div class="kv" style="border-top:1px solid var(--line);padding-top:8px;margin-top:8px">
+          <b>${esc(p.text)}</b>（${esc(p.language)}）<br>理由：${esc(p.rationale || "无")}
+          <div class="actions">
+            <button class="btn ok" data-act="approve" data-proposal="${esc(p.id)}" ${e.eligible ? "" : "disabled"}>审定通过</button>
+            <button class="btn danger" data-act="request-changes" data-proposal="${esc(p.id)}" ${e.eligible ? "" : "disabled"}>要求修改</button>
+          </div>
+          ${e.eligible ? "" : `<p class="locked-reason">🔒 无审定资格：${e.reasons.map(esc).join("；")}</p>`}
+        </div>`;
+      }).join("");
+      return signCard(s, `${reportsHtml(s)}${props}`);
+    }).join("") || "<p class='kv'>暂无待审定译法。</p>"}</div></div>`;
+  bindActions();
+}
+
+// ---------------- 设置单位 ----------------
+async function renderManager() {
+  const { org, signs } = await api("/api/manager/queue");
+  $("#work").innerHTML = `<div class="card"><h2>🏗️ 本单位整改队列</h2>
+    <p class="notice privacy">您只能看到分派给「${esc(org)}」的标识；可见坐标不超过举报人授权的精度，任何联系方式均不可见。</p>
+    <div id="list">${signs.map((s) => signCard(s, `
+      ${reportsHtml(s)}
+      ${(s.reviews || []).filter((r) => r.verdict === "approved").slice(-1).map((r) =>
+        `<p class="notice ok">审定通过的译法：<b>${esc(s.proposals?.find((p) => p.id === r.proposal_id)?.text || "")}</b></p>`).join("")}
+      <div class="actions">
+        ${["expert_approved"].includes(s.status) ? `<button class="btn ok" data-act="accept">接受并整改</button><button class="btn danger" data-act="appeal">提出申诉</button>` : ""}
+        ${["rectifying", "reopened"].includes(s.status) ? `<button class="btn secondary" data-act="proof">上传更换证明</button>` : ""}
+        ${s.status === "appealed" ? `<span class="badge warn">申诉审理中</span>` : ""}
+      </div>`)).join("") || "<p class='kv'>当前没有分派给本单位的标识。</p>"}</div></div>`;
+  bindActions();
+}
+
+// ---------------- 主管部门 ----------------
+async function renderAdmin() {
+  const [mc, queue, orgs, analytics] = await Promise.all([
+    api("/api/admin/merge-candidates"),
+    api("/api/manager/queue"),
+    api("/api/admin/orgs"),
+    api("/api/admin/analytics"),
+  ]);
+  const orgOptions = orgs.orgs.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("");
+  const a = analytics;
+  $("#work").innerHTML = `
+  <div class="card">
+    <h2>📊 监管态势（不含任何个人标识信息）</h2>
+    <div class="stat-grid">
+      <div class="stat"><b>${a.active_sign_total}</b><span>在办标识</span></div>
+      <div class="stat"><b>${a.long_standing.length}</b><span>长期未整改（≥30天）</span></div>
+      <div class="stat"><b>${a.expert_shortage.length}</b><span>专家资源不足的区域×语种</span></div>
+      <div class="stat"><b>${a.repeat_errors_by_org.reduce((n, x) => n + x.reopen_total, 0)}</b><span>复查不通过累计次数</span></div>
+    </div>
+    <div class="section-title">长期未整改（前 20）</div>
+    ${a.long_standing.map((x) => `<p class="kv">${esc(x.title)}｜${esc(x.district)}｜${esc(x.owner_org || "未分派")}｜${esc(x.status_text)}｜已挂起 <b>${x.open_days}</b> 天｜复查退回 ${x.reopen_count} 次</p>`).join("") || "<p class='kv'>无</p>"}
+    <div class="section-title">反复出错单位</div>
+    ${a.repeat_errors_by_org.map((x) => `<p class="kv">${esc(x.org)}：涉及 ${x.signs} 个标识，累计退回 ${x.reopen_total} 次</p>`).join("") || "<p class='kv'>无</p>"}
+    <div class="section-title">专家资源不足区域</div>
+    ${a.expert_shortage.map((x) => `<p class="kv">${esc(x.district)} · ${esc(x.language)}：${x.waiting} 个标识等待审定，无符合语种与回避条件的专家</p>`).join("") || "<p class='kv'>无</p>"}
+    <div class="section-title">各区在办量</div>
+    <p class="kv">${a.district_workload.map((x) => `${esc(x.district)} ${x.active_count}`).join("｜")}</p>
+  </div>
+
+  <div class="card">
+    <h2>🔀 合并候选（人工甄别，防止重复派发）</h2>
+    <p class="notice warn">相似图片 / 邻近坐标<b>只产生候选</b>。即使高度相似，也必须人工确认；确认前系统禁止向设置单位派发，且任何线索都不会被删除。</p>
+    <div id="mcList">${mc.candidates.map((c) => `
+      <div class="sign-item" data-mc="${esc(c.id)}">
+        <h4>新线索「${esc(c.new_sign?.title || "")}」 vs 既有标识「${esc(c.target_sign.title)}」</h4>
+        <p class="reasons">命中理由：${c.reasons.map(esc).join("；")}</p>
+        <p class="meta">新线索状态：${esc(c.new_sign?.status_text || "")}；既有状态：${esc(c.target_sign.status_text)}</p>
+        <div class="actions">
+          <button class="btn ok" data-act="merge-yes" data-mc="${esc(c.id)}">确认同一标识（合并）</button>
+          <button class="btn ghost" data-act="merge-no" data-mc="${esc(c.id)}">是不同路牌（保留两条）</button>
+        </div>
+      </div>`).join("") || "<p class='kv'>没有待甄别的候选。</p>"}</div>
+  </div>
+
+  <div class="card">
+    <h2>🛠️ 全部标识与派发 / 复查</h2>
+    <div id="list">${queue.signs.map((s) => signCard(s, `
+      ${reportsHtml(s)}
+      <div class="actions">
+        ${!s.owner_org ? `<select data-role="org">${orgOptions}</select><button class="btn secondary" data-act="dispatch">分派设置单位</button>
+          <span class="kv">有未决合并候选时将被系统拦截</span>` : ""}
+        ${s.status === "appealed" ? `<button class="btn ok" data-act="uphold-no">驳回申诉（维持译法）</button><button class="btn danger" data-act="uphold-yes">支持申诉（退回重审）</button>` : ""}
+        ${s.pending_recheck || s.status === "rectifying" ? `<button class="btn secondary" data-act="recheck">现场复查（生成新版本）</button>` : ""}
+      </div>`)).join("")}</div>
+  </div>`;
+  bindActions();
+}
+
+// ---------------- 事件绑定 ----------------
+function bindActions() {
+  $("#work").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn || btn.disabled) return;
+    const item = btn.closest(".sign-item");
+    const id = item?.dataset.id;
+    const act = btn.dataset.act;
+    try {
+      if (act === "propose") return openProposal(id);
+      if (act === "approve" || act === "request-changes") return openReview(btn.dataset.proposal, act === "approve" ? "approved" : "changes_requested");
+      if (act === "accept") { await api(`/api/signs/${id}/respond`, { method: "POST", body: { action: "accept", note: "本单位接受译法，安排整改" } }); toast("已接受，进入整改"); return render(); }
+      if (act === "appeal") {
+        const note = prompt("请填写申诉理由（仅主管部门可见）：", "现场条件不具备，建议调整");
+        if (note === null) return;
+        await api(`/api/signs/${id}/respond`, { method: "POST", body: { action: "appeal", note } });
+        toast("申诉已提交"); return render();
+      }
+      if (act === "proof") return openProof(id);
+      if (act === "merge-yes" || act === "merge-no") {
+        const mcId = btn.dataset.mc;
+        await api(`/api/admin/merge-candidates/${mcId}/decision`, { method: "POST", body: { decision: act === "merge-yes" ? "merge" : "separate" } });
+        toast(act === "merge-yes" ? "已合并到既有标识（原始记录保留）" : "已保留为两条不同线索"); return render();
+      }
+      if (act === "dispatch") {
+        const org = item.querySelector('select[data-role=org]').value;
+        await api(`/api/signs/${id}/dispatch`, { method: "POST", body: { owner_org: org } });
+        toast(`已分派：${org}`); return render();
+      }
+      if (act === "uphold-yes" || act === "uphold-no") {
+        await api(`/api/signs/${id}/appeal-decision`, { method: "POST", body: { uphold: act === "uphold-yes" } });
+        toast("裁决已记录"); return render();
+      }
+      if (act === "recheck") return openRecheck(id);
+    } catch (err) {
+      toast(err.details ? `${err.message}：${JSON.stringify(err.details)}` : err.message);
+    }
+  });
+}
+
+// ---------------- 弹窗表单 ----------------
+async function openProposal(signId) {
+  const value = await new Promise((resolve) => {
+    $("#modalHost").innerHTML = `<div class="modal-mask"><div class="modal">
+      <h3>提交建议译法</h3>
+      <label class="field">语种<select id="mLang"><option>English</option><option>Japanese</option><option>Korean</option></select></label>
+      <label class="field">译法 *<input type="text" id="mText" placeholder="规范译法"></label>
+      <label class="field">依据 / 说明<textarea id="mReason"></textarea></label>
+      <div class="actions" style="display:flex;gap:8px"><button class="btn ghost" id="mCancel">取消</button><button class="btn" id="mOk" style="flex:1">提交审定</button></div>
+    </div></div>`;
+    $("#mCancel").onclick = () => { $("#modalHost").innerHTML = ""; resolve(null); };
+    $("#mOk").onclick = () => resolve({
+      language: $("#mLang").value, text: $("#mText").value.trim(), rationale: $("#mReason").value.trim(),
+    });
+  });
+  if (!value?.text) { if (value) toast("请填写译法"); return; }
+  await api(`/api/signs/${signId}/proposals`, { method: "POST", body: value });
+  toast("译法已提交，等待专家审定"); render();
+}
+
+async function openReview(proposalId, verdict) {
+  const note = prompt(verdict === "approved" ? "审定意见（可空）：" : "请写明要求修改的原因：", verdict === "approved" ? "译法符合规范" : "");
+  if (note === null) return;
+  await api(`/api/proposals/${proposalId}/review`, { method: "POST", body: { verdict, note } });
+  toast(verdict === "approved" ? "已审定通过" : "已要求修改"); render();
+}
+
+async function photoPickerFlow() {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*"; input.capture = "environment";
+    input.multiple = true;
+    input.onchange = async () => {
+      const out = [];
+      for (const f of input.files) {
+        const edited = await openRedactionEditor(f);
+        if (edited) out.push(edited);
+      }
+      resolve(out);
+    };
+    input.click();
+  });
+}
+
+async function openProof(signId) {
+  const photos = await photoPickerFlow();
+  if (!photos.length) return;
+  const note = prompt("更换说明：", "已按审定译法更换标识牌");
+  if (note === null) return;
+  await api(`/api/signs/${signId}/proof`, {
+    method: "POST",
+    body: { note, photos: photos.map((p) => ({ data_url: p.data_url, boxes: p.boxes, width: p.width, height: p.height })) },
+  });
+  toast("更换证明已上传，等待复查"); render();
+}
+
+async function openRecheck(signId) {
+  const photos = await photoPickerFlow();
+  if (!photos.length) return toast("复查必须拍摄新的现场照片");
+  const pass = confirm("现场标识是否已符合规范译法？\n\n确定 = 复查通过（发布规范译法）\n取消 = 复查不通过（形成新版本并退回重新办理）");
+  const note = prompt("复查备注：", pass ? "现场与规范译法一致" : "现场仍不符合要求");
+  if (note === null) return;
+  const res = await api(`/api/signs/${signId}/recheck`, {
+    method: "POST",
+    body: { pass, note, photos: photos.map((p) => ({ data_url: p.data_url, boxes: p.boxes, width: p.width, height: p.height })) },
+  });
+  toast(pass ? "复查通过，规范译法已向公众发布" : `复查不通过，已形成第 ${res.sign.version_count} 版现场记录并退回`);
+  render();
+}
+</script>
+</body>
+</html>
