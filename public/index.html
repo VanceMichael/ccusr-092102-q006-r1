@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>福州外语标识纠错</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>外语标识纠错平台</h1>
+  <p class="sub">拍照报错 · 专家审定 · 整改可溯</p>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="report">报错</button>
+  <button class="tab" data-tab="mine">我的线索</button>
+  <button class="tab" data-tab="public">公开查询</button>
+  <button class="tab" data-tab="work">工作台</button>
+</nav>
+
+<main>
+  <!-- ============ 报错 ============ -->
+  <section id="tab-report" class="panel active">
+    <form id="report-form">
+      <label class="field">
+        <span>现场照片（上传前请遮蔽无关人脸与车牌）</span>
+        <input type="file" id="photo-input" accept="image/*" capture="environment">
+      </label>
+
+      <div id="mask-editor" class="hidden">
+        <canvas id="mask-canvas"></canvas>
+        <p class="hint">在照片上拖动可框选需要遮蔽的区域（人脸、车牌等）。</p>
+        <div class="row">
+          <button type="button" id="suggest-masks" class="btn ghost">建议遮蔽区域</button>
+          <button type="button" id="undo-mask" class="btn ghost">撤销上一块</button>
+          <button type="button" id="apply-masks" class="btn primary">应用遮蔽</button>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="no-mask-confirm">
+          画面中无人脸/车牌等需遮蔽对象
+        </label>
+      </div>
+
+      <label class="field">
+        <span>标识语种</span>
+        <select id="language" required>
+          <option value="">请选择</option>
+          <option>English</option>
+          <option>Japanese</option>
+          <option>Korean</option>
+          <option>French</option>
+          <option>其他</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>纠错意见</span>
+        <textarea id="suggestion" rows="3" required placeholder="例如：译名拼写有误，应为……"></textarea>
+      </label>
+
+      <label class="field">
+        <span>规范条款（可选，每行一条）</span>
+        <textarea id="norm-clauses" rows="2" placeholder="如：GB/T 30240《公共服务领域英文译写规范》"></textarea>
+      </label>
+
+      <label class="field">
+        <span>设置单位（可选，不清楚可留空）</span>
+        <input id="setting-unit" type="text" placeholder="如：市园林中心">
+      </label>
+
+      <fieldset class="field">
+        <legend>位置授权</legend>
+        <label class="check">
+          <input type="checkbox" id="location-authorized">
+          授权平台按所选精度保留位置
+        </label>
+        <div class="row">
+          <select id="precision" disabled>
+            <option value="exact">精确位置</option>
+            <option value="street" selected>街道级（约百米）</option>
+            <option value="district">区县级（约公里）</option>
+            <option value="none">不保留坐标</option>
+          </select>
+          <button type="button" id="get-location" class="btn ghost" disabled>获取定位</button>
+        </div>
+        <p class="hint" id="location-status">未授权时平台不保存任何坐标。</p>
+      </fieldset>
+
+      <label class="field">
+        <span>联系方式（可选，仅内部留存，任何公开页面不会展示）</span>
+        <input id="contact" type="text" autocomplete="off" placeholder="手机或邮箱">
+      </label>
+
+      <button type="submit" class="btn primary big">提交报错</button>
+    </form>
+    <div id="report-result" class="card hidden"></div>
+  </section>
+
+  <!-- ============ 我的线索 ============ -->
+  <section id="tab-mine" class="panel">
+    <p class="hint">本机提交过的线索保存在浏览器中，可随时查看办理进展。</p>
+    <div id="my-reports"></div>
+  </section>
+
+  <!-- ============ 公开查询 ============ -->
+  <section id="tab-public" class="panel">
+    <button id="reload-public" class="btn ghost">刷新列表</button>
+    <div id="public-list"></div>
+    <div id="public-detail"></div>
+  </section>
+
+  <!-- ============ 工作台 ============ -->
+  <section id="tab-work" class="panel">
+    <label class="field">
+      <span>角色令牌（演示：volunteer-demo / expert-en-demo / expert-jp-demo / expert-conflict-demo / unit-demo / supervisor-demo）</span>
+      <div class="row">
+        <input id="work-token" type="text" autocomplete="off" placeholder="粘贴令牌">
+        <button id="work-login" class="btn primary">进入</button>
+      </div>
+    </label>
+    <div id="workbench"></div>
+  </section>
+</main>
+
+<template id="tpl-mask-note"></template>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
